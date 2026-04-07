@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate dataset
+        run: python generate_dataset.py
+
+      - name: Run tests with coverage
+        run: pytest --cov=. --cov-report=term-missing tests/
+
+      - name: Type checking
+        run: mypy . --ignore-missing-imports
+
+      - name: Linting
+        run: ruff check .
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t sre-bench .
+
+      - name: Smoke test Docker container
+        run: |
+          docker run -d -p 7860:7860 --name sre-bench-test sre-bench
+          sleep 5
+          curl -f http://localhost:7860/health || exit 1
+          curl -f -X POST http://localhost:7860/reset \
+            -H 'Content-Type: application/json' \
+            -d '{"task": "task1", "seed": 42}' || exit 1
+          docker stop sre-bench-test
+          docker rm sre-bench-test
